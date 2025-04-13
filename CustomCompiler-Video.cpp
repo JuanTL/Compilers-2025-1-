@@ -23,10 +23,10 @@
 
 //EXAMPLE
 /*
-frame "video.mp4" 5 to "frame5.bmp";            Å® Extracts frame 5 as a bitmap.
-concat "clip1.mp4" "clip2.mp4" to "output.mp4"; Å® Concatenates two clips.
-audio "video.mp4" 10 20 to "audio.mp3";         Å® Extracts audio from 10s to 20s.
-play "video.mp4";                               Å® Plays the video.
+frame "video.mp4" 5 to "frame5.bmp";              Extracts frame 5 as a bitmap.
+concat "clip1.mp4" "clip2.mp4" to "output.mp4";   Concatenates two clips.
+audio "video.mp4" 10 20 to "audio.mp3";           Extracts audio from 10s to 20s.
+play "video.mp4";                                 Plays the video.
 */
 
 #include <iostream>
@@ -70,113 +70,262 @@ struct TimePosition {
     }
 };
 
-enum class TokenType { KEYWORD, STRING, NUMBER, TIME, SEMICOLON, TO, END };
+// Updated TokenType enum
+enum class TokenType {
+    ID, ASSIGN_OP, INT, ADD_OP, MUL_OP, PRINT_KEY, OPEN_PAR, CLOSE_PAR, EOP,
+    KEYWORD, STRING, NUMBER, TIME, SEMICOLON, TO, LET, IF, THEN, EQUALS, END
+};
 
+std::string TokenTypeLiteral[] = {
+    "ID", "ASSIGN_OP", "INT", "ADD_OP", "MUL_OP", "PRINT_KEY", "OPEN_PAR", "CLOSE_PAR", "EOP",
+    "KEYWORD", "STRING", "NUMBER", "TIME", "SEMICOLON", "TO", "LET", "IF", "THEN", "EQUALS", "END"
+};
 struct Token {
     TokenType type;
     std::string value;
+    int line;
+    int charPos;
 };
 
+//STRUCT TO MARK ERRORS IN THE SCANNER
+struct ScannerError {
+    int line;
+    int charPos;
+    std::string type;
+    std::string message;
+};
 
-std::vector<Token> tokenize(const std::string& source) {
+std::vector<Token> tokenize(const std::string& source, std::vector<ScannerError>& errors) {
     std::vector<Token> tokens;
     size_t i = 0;
+    int currentLine = 1;
+    int charPosInLine = 1;
 
     while (i < source.length()) {
+        if (source[i] == '\n') {
+            currentLine++;
+            charPosInLine = 1;
+            i++;
+            continue;
+        }
         if (std::isspace(source[i])) {
+            charPosInLine++;
             i++;
             continue;
         }
 
         // Comments
         if (source[i] == '#') {
-            i++; // Skip first '#'
-            if (i < source.length() && source[i] == '#') { // Multi-line comment
-                i++; // Skip second '#'
+            i++;
+            charPosInLine++;
+            if (i < source.length() && source[i] == '#') {
+                i++;
+                charPosInLine++;
                 bool foundEnd = false;
                 while (i < source.length() - 1) {
+                    if (source[i] == '\n') {
+                        currentLine++;
+                        charPosInLine = 1;
+                    }
+                    else {
+                        charPosInLine++;
+                    }
                     if (source[i] == '#' && source[i + 1] == '#') {
-                        i += 2; // Skip until reach '##'
+                        i += 2;
+                        charPosInLine += 2;
                         foundEnd = true;
                         break;
                     }
                     i++;
                 }
                 if (!foundEnd) {
-                    throw std::runtime_error("Unterminated multi-line comment");
+                    errors.push_back({ currentLine, charPosInLine, "UnterminatedComment", "Unterminated multi-line comment" });
                 }
             }
-            else { // Single-line comment
+            else {
                 while (i < source.length() && source[i] != '\n') {
                     i++;
+                    charPosInLine++;
                 }
-                //Loop to handle whitespace/newline
             }
             continue;
         }
 
-        // Keyword or identifier
+        // Identifiers and keywords
         if (std::isalpha(source[i])) {
             std::string word;
+            int startPos = charPosInLine;
             while (i < source.length() && std::isalnum(source[i])) {
                 word += source[i++];
+                charPosInLine++;
             }
-            if (word == "to") {
-                tokens.push_back({ TokenType::TO, word });
+            if (word == "print") {
+                tokens.push_back({ TokenType::PRINT_KEY, word, currentLine, startPos });
+            }
+            else if (word == "let") {
+                tokens.push_back({ TokenType::LET, word, currentLine, startPos });
+            }
+            else if (word == "if") {
+                tokens.push_back({ TokenType::IF, word, currentLine, startPos });
+            }
+            else if (word == "then") {
+                tokens.push_back({ TokenType::THEN, word, currentLine, startPos });
+            }
+            else if (word == "to") {
+                tokens.push_back({ TokenType::TO, word, currentLine, startPos });
+            }
+            else if (word == "frame" || word == "concat" || word == "audio" || word == "play") {
+                tokens.push_back({ TokenType::KEYWORD, word, currentLine, startPos });
             }
             else {
-                tokens.push_back({ TokenType::KEYWORD, word });
+                tokens.push_back({ TokenType::ID, word, currentLine, startPos });
             }
             continue;
         }
-
-        // String ("TestVideo.mp4"), time("13:23")
         if (source[i] == '"') {
             std::string str;
+            int startPos = charPosInLine;
             i++;
+            charPosInLine++;
+            int startLine = currentLine;
             while (i < source.length() && source[i] != '"') {
+                if (source[i] == '\n') {
+                    currentLine++;
+                    charPosInLine = 1;
+                }
+                else {
+                    charPosInLine++;
+                }
                 str += source[i++];
             }
-            i++; // Skip closing quote
+            if (i >= source.length()) {
+                errors.push_back({ startLine, startPos, "UnclosedString", "Unclosed string literal" });
+                continue;
+            }
+            i++;
+            charPosInLine++;
             if (str.find(':') != std::string::npos) {
-                tokens.push_back({ TokenType::TIME, str });
+                try {
+                    TimePosition time(str);
+                    tokens.push_back({ TokenType::TIME, str, startLine, startPos });
+                }
+                catch (const std::exception& e) {
+                    errors.push_back({ startLine, startPos, "InvalidTime", "Invalid time format: " + str });
+                }
             }
             else {
-                tokens.push_back({ TokenType::STRING, str });
+                if (str.empty()) {
+                    errors.push_back({ startLine, startPos, "EmptyString", "Empty string literal" });
+                }
+                else {
+                    tokens.push_back({ TokenType::STRING, str, startLine, startPos });
+                }
             }
             continue;
         }
 
-        // Number
+        // Number (INT)
         if (std::isdigit(source[i])) {
             std::string num;
+            int startPos = charPosInLine;
             while (i < source.length() && std::isdigit(source[i])) {
                 num += source[i++];
+                charPosInLine++;
             }
-            tokens.push_back({ TokenType::NUMBER, num });
-            continue;
-        }
-        // Semicolon(end line)
-        if (source[i] == ';') {
-            tokens.push_back({ TokenType::SEMICOLON, ";" });
-            i++;
+            tokens.push_back({ TokenType::INT, num, currentLine, startPos });
             continue;
         }
 
-        i++; //Skip to next character
+        // Operators
+        if (source[i] == '=') {
+            if (i + 1 < source.length() && source[i + 1] == '=') {
+                tokens.push_back({ TokenType::EQUALS, "==", currentLine, charPosInLine });
+                i += 2;
+                charPosInLine += 2;
+            }
+            else {
+                tokens.push_back({ TokenType::ASSIGN_OP, "=", currentLine, charPosInLine });
+                i++;
+                charPosInLine++;
+            }
+            continue;
+        }
+        if (source[i] == '+') {
+            tokens.push_back({ TokenType::ADD_OP, "+", currentLine, charPosInLine });
+            i++;
+            charPosInLine++;
+            continue;
+        }
+        if (source[i] == '*') {
+            tokens.push_back({ TokenType::MUL_OP, "*", currentLine, charPosInLine });
+            i++;
+            charPosInLine++;
+            continue;
+        }
+        if (source[i] == '(') {
+            tokens.push_back({ TokenType::OPEN_PAR, "(", currentLine, charPosInLine });
+            i++;
+            charPosInLine++;
+            continue;
+        }
+        if (source[i] == ')') {
+            tokens.push_back({ TokenType::CLOSE_PAR, ")", currentLine, charPosInLine });
+            i++;
+            charPosInLine++;
+            continue;
+        }
+        if (source[i] == ';') {
+            tokens.push_back({ TokenType::SEMICOLON, ";", currentLine, charPosInLine });
+            i++;
+            charPosInLine++;
+            continue;
+        }
+        if (source[i] == '$') {
+            tokens.push_back({ TokenType::EOP, "$", currentLine, charPosInLine });
+            i++;
+            charPosInLine++;
+            continue;
+        }
+
+        // Invalid character
+        errors.push_back({ currentLine, charPosInLine, "InvalidCharacter", "Unexpected character: " + std::string(1, source[i]) });
+        i++;
+        charPosInLine++;
     }
-    tokens.push_back({ TokenType::END, "" });
+    tokens.push_back({ TokenType::EOP, "", currentLine, charPosInLine });
     return tokens;
 }
+void scanAndLog(const std::string& source) {
+    std::cout << "INFO SCAN - Start scanningÅc\n";
+    std::vector<ScannerError> errors;
+    auto tokens = tokenize(source, errors);
 
+    for (const auto& token : tokens) {
+        if (token.type != TokenType::EOP || !token.value.empty()) {
+            std::cout << "DEBUG SCAN - " << TokenTypeLiteral[(int)token.type]
+                << " [ " << token.value << " ] found at ("
+                << token.line << ":" << token.charPos << ")\n";
+        }
+    }
 
+    if (errors.empty()) {
+        std::cout << "INFO SCAN - Completed with 0 errors\n";
+    }
+    else {
+        std::cout << "INFO SCAN - Completed with " << errors.size() << " errors\n";
+        for (const auto& err : errors) {
+            std::cerr << "ERROR SCAN - Line " << err.line << ":" << err.charPos
+                << ", type: " << err.type << " - " << err.message << "\n";
+        }
+    }
+}
 
 //ASTNode Docs 
 //(Abstract syntax tree (AST) - DataStructure used to represent the syntactic structure of the code in a programming language.)
 /*
 //////////////////////////////////////////////////////////////
-COMMANDS -> 
-"play"   - 
+COMMANDS ->
+"play"   -
 "frame"  -
 "concat" -
 "audio"  -
@@ -269,10 +418,10 @@ void execute(const ASTNode& node) {
     }
     //Example using FFmpeg for audio extraction, probably should be used for Video as well.
     else if (node.command == "audio") {
-        
+
         std::string command = "ffmpeg -i " + node.source1 + " -ss " + node.argStart.toString() +
-            " -to " + node.argEnd.toString() + " -vn -acodec mp3 " + node.destination; 
-        
+            " -to " + node.argEnd.toString() + " -vn -acodec mp3 " + node.destination;
+
         std::cout << "Executing: " << command << "\n";
         system(command.c_str());
     }
@@ -285,7 +434,7 @@ int main() {
         frame "video.mp4" 5 to "frame5.bmp";
         ## Multi-line comment Test
            Just another line
-           And another... 
+           And another...
            Okay, because... why not?
            Next command a concatenation, btw.
         ##
@@ -293,14 +442,35 @@ int main() {
         audio "video.mp4" "00:10" "00:20" to "audio.mp3";
         # Play the result
         play "output.mp4";
+        play "a
+        play "b.mp4"
     )";
-    auto tokens = tokenize(source);
+    std::string source1 = R"(
+    frame "video.mp4" 5 to "frame5.bmp";
+    audio "test.mp4" "1:" "00:20" to "out.mp3"; 
+    play  "a.mp4"
+    @bad)";
+
+    scanAndLog(source1);
+    /*
+    //ORIGINAL TOKENS CHECK BEFORE ADDING THE FUNCTION
+    std::vector<ScannerError> errors;
+    auto tokens = tokenize(source, errors);
 
     // Debug: Print tokens
     for (const auto& token : tokens) {
-        std::cout << "Token: " << (int)token.type << " " << token.value << "\n";
+        std::cout << "Token: " << TokenTypeLiteral[(int)token.type] << " " << token.value << "\n";
     }
-
+    // Print errors if any
+    if (!errors.empty()) {
+        for (const auto& err : errors) {
+            std::cerr << "Error found in line " << err.line << ", type: " << err.type << " - " << err.message << "\n";
+        }
+    }
+    */
+    
+    /*
+    //CALLING PARSER HERE
     Parser parser(tokens);
     while (parser.hasMoreStatements()) {
         try {
@@ -312,6 +482,6 @@ int main() {
             break;
         }
     }
-
+    */
     return 0;
 }
