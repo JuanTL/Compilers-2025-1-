@@ -33,6 +33,8 @@ play "video.mp4";                                 Plays the video.
 #include <string>
 #include <vector>
 #include <cstdlib>
+#include <fstream>
+#include <sstream>
 
 
 //STRUCT TO HAVE CONSISTENT TIME INPUT (MINUTES:SECONDS)
@@ -296,7 +298,7 @@ std::vector<Token> tokenize(const std::string& source, std::vector<ScannerError>
     return tokens;
 }
 void scanAndLog(const std::string& source) {
-    std::cout << "INFO SCAN - Start scanningc\n";
+    std::cout << "INFO SCAN - Start scanningÂc\n";
     std::vector<ScannerError> errors;
     auto tokens = tokenize(source, errors);
 
@@ -428,30 +430,35 @@ void execute(const ASTNode& node) {
     // Add commands HERE!
 }
 
-int main() {
-    std::string source = R"(
-        # Extract a frame from video
-        frame "video.mp4" 5 to "frame5.bmp";
-        ## Multi-line comment Test
-           Just another line
-           And another...
-           Okay, because... why not?
-           Next command a concatenation, btw.
-        ##
-        concat "clip1.mp4" "clip2.mp4" to "output.mp4";
-        audio "video.mp4" "00:10" "00:20" to "audio.mp3";
-        # Play the result
-        play "output.mp4";
-        play "a
-        play "b.mp4"
-    )";
-    std::string source1 = R"(
-    frame "video.mp4" 5 to "frame5.bmp";
-    audio "test.mp4" "1:" "00:20" to "out.mp3"; 
-    play  "a.mp4"
-    @bad)";
 
-    scanAndLog(source1);
+void read(std::string direc, std::string &out) {
+    std::ifstream file(direc);
+
+    if (!file.is_open()) {
+        std::cerr << "No se pudo abrir el archivo: " << direc << std::endl;
+        return;
+    }
+
+    std::stringstream buffer;
+    buffer << file.rdbuf(); // Lee todo el archivo de una vez
+    std::string line = buffer.str();
+    out = line;
+
+    scanAndLog(line);
+
+    file.close();
+}
+
+int main() {
+
+    std::string source;
+
+    read("C:/Users/alumno-m/Desktop/input.txt", source);
+    
+    scanAndLog(source);
+
+
+
     /*
     //ORIGINAL TOKENS CHECK BEFORE ADDING THE FUNCTION
     std::vector<ScannerError> errors;
@@ -468,7 +475,7 @@ int main() {
         }
     }
     */
-    
+
     /*
     //CALLING PARSER HERE
     Parser parser(tokens);
