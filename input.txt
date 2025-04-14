@@ -1,0 +1,5 @@
+(
+    frame "video.mp4" 5 to "frame5.bmp";
+    audio "test.mp4" "1:" "00:20" to "out.mp3"; 
+    play  "a.mp4"
+    @bad)
