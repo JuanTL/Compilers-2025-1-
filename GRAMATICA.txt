@@ -1,0 +1,46 @@
+program        -> statement program'
+program'       -> statement program' | ''
+
+statement      -> assign 
+               | command 
+               | if_stmt
+
+assign         -> let ID = expression ;
+
+command        -> extract_frame 
+               | concatenate 
+               | extract_audio 
+               | play
+
+extract_frame  -> frame expression expression to string ;
+
+concatenate    -> concat expression expression to string ;
+
+extract_audio  -> audio expression expression expression to string ;
+
+play           -> play expression play_args ;
+
+play_args      -> ; 
+               | expression expression ;
+
+if_stmt        -> if condition then statement
+
+condition      -> expression == expression
+
+expression     -> term expression'
+expression'    -> + term expression' 
+               | * term expression' 
+               | ''
+
+term           -> number 
+               | string 
+               | time 
+               | ID
+
+string         -> " filename "
+
+number         -> integer
+
+time           -> " integer : integer "
+
+ID             -> alphabetic_string
