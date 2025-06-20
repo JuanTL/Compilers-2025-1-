@@ -7,6 +7,7 @@
 #include <fstream>
 #include <sstream>
 #include <unordered_map>
+#include <algorithm>
 
 //GRAMMAR
 /*
@@ -346,7 +347,7 @@ bool scanAndLog(const std::string& source) {
 
     if (errors.empty()) {
         std::cout << "INFO SCAN - Completed with 0 errors\n";
-		return true;
+        return true;
     }
     else {
         std::cout << "INFO SCAN - Completed with " << errors.size() << " errors\n";
@@ -354,10 +355,9 @@ bool scanAndLog(const std::string& source) {
             std::cerr << "ERROR SCAN - Line " << err.line << ":" << err.charPos
                 << ", type: " << err.type << " - " << err.message << "\n";
         }
-		return false;
+        return false;
     }
 }
-
 
 
 

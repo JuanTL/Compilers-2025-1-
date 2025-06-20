@@ -22,6 +22,9 @@ destination - output filename
 
 #include "Scanner.h"
 
+
+
+
 // Represents a value in the language (number, string, or time).
 struct Value {
     enum { NUMBER, STRING, TIME } type;
@@ -40,10 +43,10 @@ struct ASTNode {
     std::vector<Token> expr2;
     std::vector<Token> expr3;
     std::string destination; // Output file
-	std::vector<ASTNode*> statements; // For program
-	//ASTNode* thenStmt; // For if statements
+    std::vector<ASTNode*> statements; // For program
+    //ASTNode* thenStmt; // For if statements
 
-    
+
 
     ASTNode(const std::string& cmd = "", const std::string& var = "",
         const std::vector<Token>& e1 = {}, const std::vector<Token>& e2 = {},
@@ -115,7 +118,7 @@ struct ASTNode {
         return *this;
     }
     // Constructor for ASTNode to initialize all fields
-    
+
 };
 
 class Parser {
@@ -125,7 +128,7 @@ class Parser {
     std::vector<ScannerError> errors;
 
     //PANIC MODE FUNCTIONS
-    
+
     // Check if token matches type without advancing
     bool check(TokenType type) const {
         return pos < tokens.size() && tokens[pos].type == type;
@@ -353,9 +356,63 @@ class Parser {
         return node;
     }
 
+
+    std::string exprToString(const std::vector<Token>& expr) const {
+        std::string result;
+        for (const auto& token : expr) {
+            result += token.value + " ";
+        }
+        return result.empty() ? "" : result.substr(0, result.size() - 1);
+    }
+    void printAST(const ASTNode& node, std::ofstream& out, const std::string& parent = "") const {
+        std::string nodeName = node.command;
+        if (node.command == "let") {
+            nodeName += " (" + node.varName + " = " + exprToString(node.expr1) + ")";
+        }
+        else if (node.command == "if") {
+            nodeName += " (" + exprToString(node.expr1) + " == " + exprToString(node.expr2) + ")";
+        }
+        else if (node.command == "frame" || node.command == "concat") {
+            nodeName += " (" + exprToString(node.expr1) + ", " + exprToString(node.expr2) + " to " + node.destination + ")";
+        }
+        else if (node.command == "audio") {
+            nodeName += " (" + exprToString(node.expr1) + ", " + exprToString(node.expr2) + ", " +
+                exprToString(node.expr3) + " to " + node.destination + ")";
+        }
+        else if (node.command == "play") {
+            nodeName += " (" + exprToString(node.expr1);
+            if (!node.expr2.empty()) {
+                nodeName += ", " + exprToString(node.expr2) + ", " + exprToString(node.expr3);
+            }
+            nodeName += ")";
+        }
+        else if (node.command == "error") {
+            nodeName = "ERROR";
+        }
+        // Sanitize node name for Python (replace quotes, etc.)
+        std::string sanitizedName = nodeName;
+        std::replace(sanitizedName.begin(), sanitizedName.end(), '"', '\'');
+
+        // Generate unique node ID to avoid name clashes
+        static int nodeCounter = 0;
+        std::string nodeId = "node_" + std::to_string(nodeCounter++);
+
+        // Write node in anytree format
+        if (parent.empty()) {
+            out << nodeId << " = Node(\"" << sanitizedName << "\")\n";
+        }
+        else {
+            out << nodeId << " = Node(\"" << sanitizedName << "\", parent=" << parent << ")\n";
+        }
+
+        // Recursively print child statements
+        for (size_t i = 0; i < node.statements.size(); ++i) {
+            printAST(*node.statements[i], out, nodeId);
+        }
+    }
 public:
     Parser(const std::vector<Token>& t) : tokens(t), pos(0) {}
-
+    /*
     void parseAndExecute() {
         if (!errors.empty()) {
             for (const auto& err : errors) {
@@ -370,67 +427,119 @@ public:
             }
         }
         else {
-            execute(program);
+            // Generate AST.txt if parsing succeeded
+            std::ofstream out("AST.py");
+            if (out.is_open()) {
+                out << "from anytree import Node\n\n";
+                printAST(program, out);
+                out.close();
+            }
+            //execute(program);
+        }
+    }
+    */
+    void parseAndExecute() {
+        if (!errors.empty()) {
+            for (const auto& err : errors) {
+                std::cerr << "Error at line " << err.line << ", col " << err.charPos << ": "
+                    << err.type << " - " << err.message << "\n";
+            }
+            errors.clear();
+        }
+
+        ASTNode program = parseProgram();
+
+        if (!errors.empty()) {
+            for (const auto& err : errors) {
+                std::cerr << "Error at line " << err.line << ", col " << err.charPos << ": "
+                    << err.type << " - " << err.message << "\n";
+            }
+        }
+        else {
+            // Write AST visualization (tree form)
+            std::ofstream treeOut("AST.py");
+            if (treeOut.is_open()) {
+                treeOut << "from anytree import Node\n\n";
+                printAST(program, treeOut);
+                treeOut.close();
+            }
+
+            // Write executable Python code
+            std::ofstream pyOut("generated_video_script.py");
+            if (pyOut.is_open()) {
+                translateToPython(program, pyOut);
+                pyOut.close();
+                std::cout << "Generated Python script: generated_video_script.py\n";
+            }
         }
     }
 
-    void execute(const ASTNode& node) {
+    // Video Operations Python
+
+    void translateToPython(const ASTNode& node, std::ofstream& out) {
         if (node.command == "program") {
+            out << "import ffmpeg\n";
+            out << "import subprocess\n\n";
             for (const auto* stmt : node.statements) {
-                execute(*stmt);
-            }
-            return;
-        }
-        if (node.command == "let") return; // Handled in parseAssign
-        if (node.command == "if") {
-            Value val1 = evaluate(node.expr1);
-            Value val2 = evaluate(node.expr2);
-            if (val1.type == Value::TIME && val2.type == Value::TIME && val1.time == val2.time) {
-                for (const auto* stmt : node.statements) {
-                    execute(*stmt);
-                }
+                translateToPython(*stmt, out);
+                out << "\n";
             }
             return;
         }
 
-        Value val1 = evaluate(node.expr1);
-        std::string command;
         if (node.command == "play") {
-            if (node.expr2.empty()) {
-                command = "vlc " + val1.str;
+            std::string file = exprToString(node.expr1);
+            out << "subprocess.run([\"vlc\", \"" << file << "\"";
+            if (!node.expr2.empty()) {
+                std::string start = exprToString(node.expr2);
+                std::string end = exprToString(node.expr3);
+                out << ", \"--start-time\", \"" << start << "\", \"--stop-time\", \"" << end << "\"";
             }
-            else {
-                Value val2 = evaluate(node.expr2);
-                Value val3 = evaluate(node.expr3);
-                command = "vlc " + val1.str + " --start-time " + std::to_string(val2.time.toSeconds()) +
-                    " --stop-time " + std::to_string(val3.time.toSeconds());
-            }
+            out << "])\n";
         }
         else if (node.command == "frame") {
-            Value val2 = evaluate(node.expr2);
-            if (val2.type != Value::NUMBER) {
-                errors.push_back({ node.expr2[0].line, node.expr2[0].charPos, "TypeError", "Frame number must be integer" });
-                throw std::runtime_error("Frame number must be integer");
-            }
-            command = "ffmpeg -i " + val1.str + " -vf \"select=eq(n\\," + std::to_string(val2.num) + ")\" -vframes 1 " + node.destination;
+            std::string input = exprToString(node.expr1);
+            std::string frameNum = exprToString(node.expr2);
+            out << "ffmpeg.input(\"" << input << "\")"
+                << ".filter(\"select\", \"eq(n\\\\," << frameNum << ")\")"
+                << ".output(\"" << node.destination << "\", vframes=1).run()\n";
         }
         else if (node.command == "concat") {
-            Value val2 = evaluate(node.expr2);
-            std::string listFile = "concat_list.txt";
-            std::ofstream out(listFile);
-            out << "file '" << val1.str << "'\n";
-            out << "file '" << val2.str << "'\n";
-            out.close();
-            command = "ffmpeg -f concat -i " + listFile + " -c copy " + node.destination;
-            std::remove(listFile.c_str());
+            std::string input1 = exprToString(node.expr1);
+            std::string input2 = exprToString(node.expr2);
+            std::string dest = node.destination;
+
+            out << "# Convert inputs\n";
+            out << "ffmpeg.input(\"" << input1 << "\").output(\"converted_0.mp4\", vcodec='libx264', acodec='aac').run()\n";
+            out << "ffmpeg.input(\"" << input2 << "\").output(\"converted_1.mp4\", vcodec='libx264', acodec='aac').run()\n\n";
+
+            out << "# Write concat file list\n";
+            out << "with open('files.txt', 'w') as f:\n";
+            out << "    f.write(\"file 'converted_0.mp4'\\n\")\n";
+            out << "    f.write(\"file 'converted_1.mp4'\\n\")\n\n";
+
+            out << "# Concatenate with concat demuxer\n";
+            out << "subprocess.run(['ffmpeg', '-f', 'concat', '-safe', '0', '-i', 'files.txt', '-c', 'copy', '" << dest << "'])\n";
         }
+
+
         else if (node.command == "audio") {
-            Value val2 = evaluate(node.expr2);
-            Value val3 = evaluate(node.expr3);
-            command = "ffmpeg -i " + val1.str + " -ss " + val2.time.toString() +
-                " -to " + val3.time.toString() + " -vn -acodec mp3 " + node.destination;
+            std::string input = exprToString(node.expr1);
+            std::string start = exprToString(node.expr2);
+            std::string end = exprToString(node.expr3);
+            std::string dest = node.destination;
+
+            out << "ffmpeg.input(\"" << input << "\", ss=\"" << start << "\", to=\"" << end << "\")"
+                << ".output(\"" << dest << "\", vn=None, acodec='mp3').run()\n";
         }
-        std::cout << "Executing: " << command << "\n";
-        system(command.c_str());
+        else if (node.command == "if") {
+            std::string cond1 = exprToString(node.expr1);
+            std::string cond2 = exprToString(node.expr2);
+            out << "if " << cond1 << " == " << cond2 << ":\n";
+            for (const auto* stmt : node.statements) {
+                out << "    ";
+                translateToPython(*stmt, out);
+            }
+        }
     }
 };
