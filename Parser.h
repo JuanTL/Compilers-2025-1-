@@ -365,63 +365,81 @@ class Parser {
         return result.empty() ? "" : result.substr(0, result.size() - 1);
     }
     void printAST(const ASTNode& node, std::ofstream& out, const std::string& parent = "") const {
+        // Generate unique node ID to avoid name clashes
         static int nodeCounter = 0;
-    
-        // Crear nodo padre con el nombre del comando
-        std::string command = node.command;
-        std::replace(command.begin(), command.end(), '"', '\''); // Sanitizar
         std::string nodeId = "node_" + std::to_string(nodeCounter++);
-    
+        
+        // Create the main command node
+        std::string commandName = node.command;
+        if (node.command == "error") {
+            commandName = "ERROR";
+        }
+        
+        // Write main command node
         if (parent.empty()) {
-            out << nodeId << " = Node(\"" << command << "\")\n";
-        } else {
-            out << nodeId << " = Node(\"" << command << "\", parent=" << parent << ")\n";
+            out << nodeId << " = Node(\"" << commandName << "\")\n";
         }
-    
-        // Función auxiliar para agregar un argumento como hijo del nodo actual
-        auto addArg = [&](const std::string& value) {
-            if (!value.empty()) {
-                std::string argText = value;
-                std::replace(argText.begin(), argText.end(), '"', '\''); // Sanitizar
-    
-                std::string argId = "node_" + std::to_string(nodeCounter++);  // ID único
-                out << argId << " = Node(\"" << argText << "\", parent=" << nodeId << ")\n";
+        else {
+            out << nodeId << " = Node(\"" << commandName << "\", parent=" << parent << ")\n";
+        }
+        
+
+        if (node.command == "let") {
+ 
+            std::string varNodeId = "node_" + std::to_string(nodeCounter++);
+            std::string exprNodeId = "node_" + std::to_string(nodeCounter++);
+            
+            out << varNodeId << " = Node(\"var: " << node.varName << "\", parent=" << nodeId << ")\n";
+            out << exprNodeId << " = Node(\"expr: " << exprToString(node.expr1) << "\", parent=" << nodeId << ")\n";
+        }
+        else if (node.command == "if") {
+
+            std::string expr1NodeId = "node_" + std::to_string(nodeCounter++);
+            std::string expr2NodeId = "node_" + std::to_string(nodeCounter++);
+            
+            out << expr1NodeId << " = Node(\"left: " << exprToString(node.expr1) << "\", parent=" << nodeId << ")\n";
+            out << expr2NodeId << " = Node(\"right: " << exprToString(node.expr2) << "\", parent=" << nodeId << ")\n";
+        }
+        else if (node.command == "frame" || node.command == "concat") {
+
+            std::string expr1NodeId = "node_" + std::to_string(nodeCounter++);
+            std::string expr2NodeId = "node_" + std::to_string(nodeCounter++);
+            std::string destNodeId = "node_" + std::to_string(nodeCounter++);
+            
+            out << expr1NodeId << " = Node(\"arg1: " << exprToString(node.expr1) << "\", parent=" << nodeId << ")\n";
+            out << expr2NodeId << " = Node(\"arg2: " << exprToString(node.expr2) << "\", parent=" << nodeId << ")\n";
+            out << destNodeId << " = Node(\"dest: " << node.destination << "\", parent=" << nodeId << ")\n";
+        }
+        else if (node.command == "audio") {
+
+            std::string expr1NodeId = "node_" + std::to_string(nodeCounter++);
+            std::string expr2NodeId = "node_" + std::to_string(nodeCounter++);
+            std::string expr3NodeId = "node_" + std::to_string(nodeCounter++);
+            std::string destNodeId = "node_" + std::to_string(nodeCounter++);
+            
+            out << expr1NodeId << " = Node(\"arg1: " << exprToString(node.expr1) << "\", parent=" << nodeId << ")\n";
+            out << expr2NodeId << " = Node(\"arg2: " << exprToString(node.expr2) << "\", parent=" << nodeId << ")\n";
+            out << expr3NodeId << " = Node(\"arg3: " << exprToString(node.expr3) << "\", parent=" << nodeId << ")\n";
+            out << destNodeId << " = Node(\"dest: " << node.destination << "\", parent=" << nodeId << ")\n";
+        }
+        else if (node.command == "play") {
+
+            std::string expr1NodeId = "node_" + std::to_string(nodeCounter++);
+            out << expr1NodeId << " = Node(\"arg1: " << exprToString(node.expr1) << "\", parent=" << nodeId << ")\n";
+            
+
+            if (!node.expr2.empty()) {
+                std::string expr2NodeId = "node_" + std::to_string(nodeCounter++);
+                std::string expr3NodeId = "node_" + std::to_string(nodeCounter++);
+                
+                out << expr2NodeId << " = Node(\"arg2: " << exprToString(node.expr2) << "\", parent=" << nodeId << ")\n";
+                out << expr3NodeId << " = Node(\"arg3: " << exprToString(node.expr3) << "\", parent=" << nodeId << ")\n";
             }
-        };
-    
-        // Agregar hijos según el tipo de comando
-        if (command == "frame" || command == "concat") {
-            addArg(exprToString(node.expr1));
-            addArg(exprToString(node.expr2));
-            addArg(node.destination);
         }
-        else if (command == "audio") {
-            addArg(exprToString(node.expr1));
-            addArg(exprToString(node.expr2));
-            addArg(exprToString(node.expr3));
-            addArg(node.destination);
-        }
-        else if (command == "play") {
-            addArg(exprToString(node.expr1));
-            if (!node.expr2.empty()) addArg(exprToString(node.expr2));
-            if (!node.expr3.empty()) addArg(exprToString(node.expr3));
-        }
-        else if (command == "let") {
-            addArg(node.varName);
-            addArg(exprToString(node.expr1));
-        }
-        else if (command == "if") {
-            addArg(exprToString(node.expr1));
-            addArg(exprToString(node.expr2));
-        }
-        else if (command == "error") {
-            std::string errorId = "node_" + std::to_string(nodeCounter++);
-            out << errorId << " = Node(\"ERROR\", parent=" << nodeId << ")\n";
-        }
-    
-        // Recursividad para procesar hijos del AST
-        for (const auto& stmt : node.statements) {
-            printAST(*stmt, out, nodeId);
+        
+        // Recursively print child statements
+        for (size_t i = 0; i < node.statements.size(); ++i) {
+            printAST(*node.statements[i], out, nodeId);
         }
     }
 
