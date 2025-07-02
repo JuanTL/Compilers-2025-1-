@@ -365,51 +365,66 @@ class Parser {
         return result.empty() ? "" : result.substr(0, result.size() - 1);
     }
     void printAST(const ASTNode& node, std::ofstream& out, const std::string& parent = "") const {
-        std::string nodeName = node.command;
-        if (node.command == "let") {
-            nodeName += " (" + node.varName + " = " + exprToString(node.expr1) + ")";
-        }
-        else if (node.command == "if") {
-            nodeName += " (" + exprToString(node.expr1) + " == " + exprToString(node.expr2) + ")";
-        }
-        else if (node.command == "frame" || node.command == "concat") {
-            nodeName += " (" + exprToString(node.expr1) + ", " + exprToString(node.expr2) + " to " + node.destination + ")";
-        }
-        else if (node.command == "audio") {
-            nodeName += " (" + exprToString(node.expr1) + ", " + exprToString(node.expr2) + ", " +
-                exprToString(node.expr3) + " to " + node.destination + ")";
-        }
-        else if (node.command == "play") {
-            nodeName += " (" + exprToString(node.expr1);
-            if (!node.expr2.empty()) {
-                nodeName += ", " + exprToString(node.expr2) + ", " + exprToString(node.expr3);
-            }
-            nodeName += ")";
-        }
-        else if (node.command == "error") {
-            nodeName = "ERROR";
-        }
-        // Sanitize node name for Python (replace quotes, etc.)
-        std::string sanitizedName = nodeName;
-        std::replace(sanitizedName.begin(), sanitizedName.end(), '"', '\'');
-
-        // Generate unique node ID to avoid name clashes
         static int nodeCounter = 0;
+    
+        // Crear nodo padre con el nombre del comando
+        std::string command = node.command;
+        std::replace(command.begin(), command.end(), '"', '\''); // Sanitizar
         std::string nodeId = "node_" + std::to_string(nodeCounter++);
-
-        // Write node in anytree format
+    
         if (parent.empty()) {
-            out << nodeId << " = Node(\"" << sanitizedName << "\")\n";
+            out << nodeId << " = Node(\"" << command << "\")\n";
+        } else {
+            out << nodeId << " = Node(\"" << command << "\", parent=" << parent << ")\n";
         }
-        else {
-            out << nodeId << " = Node(\"" << sanitizedName << "\", parent=" << parent << ")\n";
+    
+        // Función auxiliar para agregar un argumento como hijo del nodo actual
+        auto addArg = [&](const std::string& value) {
+            if (!value.empty()) {
+                std::string argText = value;
+                std::replace(argText.begin(), argText.end(), '"', '\''); // Sanitizar
+    
+                std::string argId = "node_" + std::to_string(nodeCounter++);  // ID único
+                out << argId << " = Node(\"" << argText << "\", parent=" << nodeId << ")\n";
+            }
+        };
+    
+        // Agregar hijos según el tipo de comando
+        if (command == "frame" || command == "concat") {
+            addArg(exprToString(node.expr1));
+            addArg(exprToString(node.expr2));
+            addArg(node.destination);
         }
-
-        // Recursively print child statements
-        for (size_t i = 0; i < node.statements.size(); ++i) {
-            printAST(*node.statements[i], out, nodeId);
+        else if (command == "audio") {
+            addArg(exprToString(node.expr1));
+            addArg(exprToString(node.expr2));
+            addArg(exprToString(node.expr3));
+            addArg(node.destination);
+        }
+        else if (command == "play") {
+            addArg(exprToString(node.expr1));
+            if (!node.expr2.empty()) addArg(exprToString(node.expr2));
+            if (!node.expr3.empty()) addArg(exprToString(node.expr3));
+        }
+        else if (command == "let") {
+            addArg(node.varName);
+            addArg(exprToString(node.expr1));
+        }
+        else if (command == "if") {
+            addArg(exprToString(node.expr1));
+            addArg(exprToString(node.expr2));
+        }
+        else if (command == "error") {
+            std::string errorId = "node_" + std::to_string(nodeCounter++);
+            out << errorId << " = Node(\"ERROR\", parent=" << nodeId << ")\n";
+        }
+    
+        // Recursividad para procesar hijos del AST
+        for (const auto& stmt : node.statements) {
+            printAST(*stmt, out, nodeId);
         }
     }
+
 public:
     Parser(const std::vector<Token>& t) : tokens(t), pos(0) {}
     /*
